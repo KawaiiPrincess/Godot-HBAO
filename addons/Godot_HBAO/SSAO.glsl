@@ -1,12 +1,38 @@
-#[compute]
+#[vertex]
+
 #version 450
 
-// Invocations in the (x, y, z) dimension
-layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(location = 0) out vec2 uv_interp;
+/* clang-format on */
+
+void main() {
+    // old code, ARM driver bug on Mali-GXXx GPUs and Vulkan API 1.3.xxx
+    // https://github.com/godotengine/godot/pull/92817#issuecomment-2168625982
+    //vec2 base_arr[3] = vec2[](vec2(-1.0, -1.0), vec2(-1.0, 3.0), vec2(3.0, -1.0));
+    //gl_Position = vec4(base_arr[gl_VertexIndex], 0.0, 1.0);
+    //uv_interp = clamp(gl_Position.xy, vec2(0.0, 0.0), vec2(1.0, 1.0)) * 2.0; // saturate(x) * 2.0
+
+    vec2 vertex_base;
+    if (gl_VertexIndex == 0) {
+        vertex_base = vec2(-1.0, -1.0);
+    } else if (gl_VertexIndex == 1) {
+        vertex_base = vec2(-1.0, 3.0);
+    } else {
+        vertex_base = vec2(3.0, -1.0);
+    }
+    gl_Position = vec4(vertex_base, 0.0, 1.0);
+    uv_interp = clamp(vertex_base, vec2(0.0, 0.0), vec2(1.0, 1.0)) * 2.0; // saturate(x) * 2.0
+}
+
+#[fragment]
+
+#version 450
 
 layout(set = 0, binding = 1) uniform sampler2D depth_texture;
-layout(r8, set = 0, binding = 2) uniform image2D blur_image;
 layout(set = 0, binding = 3) uniform sampler2D noise_texture;
+
+layout(location = 0) in vec2 uv_interp;
+layout(location = 0) out vec4 frag_color;
 
 layout(set=2, binding=0) uniform uniformBuffer {
     mat4 inv_proj;
@@ -33,7 +59,7 @@ layout(push_constant, std430) uniform Params {
 
 const float PI = 3.14159265;
 
-vec2 AORes = params.raster_size;
+vec2 AORes = params.raster_size / 2.0;
 vec2 InvAORes = vec2(1.0/AORes.x, 1.0/AORes.y);
 
 
@@ -49,10 +75,10 @@ float R = Scene.Radius;
 float R2 = R*R;
 float NegInvR2 = - 1.0 / (R*R);
 float TanBias = tan(Scene.Bias * PI / 180.0);
-float MaxRadiusPixels = 50.0;
+float MaxRadiusPixels = 100.0;
 
 const int NumDirections = 8;
-const int NumSamples = 4;
+const int NumSamples = 8;
 
 vec2 hash22(vec2 p)
 {
@@ -132,6 +158,11 @@ vec2 RotateDirections(vec2 Dir, vec2 CosSin)
                 Dir.x*CosSin.y + Dir.y*CosSin.x);
 }
 
+
+vec2 orientate(vec2 a, vec3 b) {
+    return a * sign(dot(vec3(a,1.0),b));
+}
+
 float HorizonOcclusion(	vec2 TexCoord,
                         vec2 deltaUV,
                         vec3 P,
@@ -167,7 +198,7 @@ float HorizonOcclusion(	vec2 TexCoord,
 
         float sinS = TanToSin(tanS);
         // Apply falloff based on the distance
-        ao = (Falloff(d2) * (sinS - sinH));
+        ao = (Falloff(abs(d2)) * (sinS - sinH));
 
         tanH = tanS;
         sinH = sinS;
@@ -201,20 +232,13 @@ void ComputeSteps(inout vec2 stepSizeUv, inout float numSteps, float rayRadiusPi
 
 // The code we want to execute in each invocation
 void main() {
-    ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = ivec2(params.raster_size);
+    ivec2 size = ivec2(params.raster_size / 2.0);
 
-    // Prevent reading/writing out of bounds.
-    if (uv.x >= size.x || uv.y >= size.y) {
-        return;
-    }
+    vec2 depth_uv = uv_interp;
 
-    // Read from our color buffer.
+    vec2 noise_uv = hash22(vec2(uv_interp)) * size;
+    noise_uv = vec2((noise_uv-floor(noise_uv/32.0)*32.0)/32.0);
 
-    vec2 depth_uv = (vec2(uv) + 0.5) / size;
-
-    vec2 noise_uv = vec2((uv-floor(uv/32.0)*32.0)/32.0);
-    noise_uv = hash22(noise_uv);
     vec3 randnoise = texture(noise_texture, noise_uv).rgb;
 
     vec3 P, Pr, Pl, Pt, Pb;
@@ -227,10 +251,12 @@ void main() {
     Pb 	= GetViewPos(depth_uv + vec2( 0,-InvAORes.y));
 
     vec3 dPdu = MinDiff(P, Pr, Pl);
-    vec3 dPdv = MinDiff(P, Pt, Pb);
+    vec3 dPdv = MinDiff(P, Pt, Pb) * (AORes.y * InvAORes.x);
+
+    vec3 normal = normalize(cross(dPdu,dPdv));
 
     vec2 rayRadiusUV = vec2(0.5 * R * scale / -P.z);
-    float rayRadiusPix = rayRadiusUV.x * size.x;
+    float rayRadiusPix = rayRadiusUV.x * AORes.x;
 
     float occlusion_small = 0.0;
     float occlusion_large = 0.0;
@@ -240,32 +266,32 @@ void main() {
     float numSteps;
     vec2 stepSizeUV;
 
-    ComputeSteps(stepSizeUV,numSteps, rayRadiusPix, randnoise.z);
+    float jitterA = length(orientate(randnoise.xy,normal)) * randnoise.z;
+
+    ComputeSteps(stepSizeUV,numSteps, rayRadiusPix, jitterA);
 
     for(float d = 0; d < NumDirections; ++d) {
 
         float theta = alpha * d;
 
-        vec2 dir = RotateDirections(vec2(cos(theta), sin(theta)), randnoise.xy);
+        vec2 dir = orientate(RotateDirections(vec2(cos(theta), sin(theta)), randnoise.xy),normal);
         vec2 deltaUV = dir * stepSizeUV;
-        if (d < 4)
-        {
-        occlusion_small += HorizonOcclusion(depth_uv,deltaUV,P,dPdu,dPdv,randnoise.z);
-        }
+
+        float jitterB = length(orientate(randnoise.xy * d,normal)) * randnoise.z;
+
+        occlusion_small += HorizonOcclusion(depth_uv,deltaUV,P,dPdu,dPdv,jitterB);
+
         for(float s = 1; s <= NumSamples; ++s) {
-            occlusion_large += HorizonOcclusion(depth_uv,deltaUV,P,dPdu,dPdv,randnoise.z);
+            occlusion_large += HorizonOcclusion(depth_uv,deltaUV,P,dPdu,dPdv,jitterB);
         }
     }
 
     float ao_final = (occlusion_small * AOStrength_small / NumDirections) + (occlusion_large * AOStrength_large / NumSamples);
-    ao_final /= (NumDirections * NumSamples);
+    ao_final /= (NumDirections + NumSamples);
 
-    ao_final = clamp(1.0 - ao_final * 2.0,0.0,1.0);
-
-    ao_final = pow(ao_final, Scene.Power);
+    ao_final = clamp(pow(1.0 - ao_final, Scene.Power),0.0,1.0);
 
     vec4 blur = vec4(ao_final,ao_final,ao_final,1.0);
 
-    imageStore(blur_image, uv, blur);
-
+    frag_color = blur;
 }

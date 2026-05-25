@@ -5,16 +5,28 @@ class_name SSAO
 
 var rd: RenderingDevice
 
+var blit_shader: RID
+var blit_pipeline: RID
+
 var hbao_shader: RID
 var hbao_pipeline: RID
 
 var blur_shader: RID
 var blur_pipeline: RID
 
+var blur_vertical_shader: RID
+var blur_vertical_pipeline: RID
+
+var compose_shader: RID
+var compose_pipeline: RID
+
 var nearest_sampler: RID
 var linear_sampler: RID
 
-var blur_image: RID
+var blit_image: RID
+var ssao_image: RID
+var blur_image_1: RID
+var blur_image_2: RID
 var noise_image: RID
 
 var framebuffer_size : Vector2i = Vector2i(0, 0)
@@ -81,15 +93,41 @@ func _init() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PREDELETE:
+		if blit_shader.is_valid():
+			rd.free_rid(blit_shader)
+			
 		if hbao_shader.is_valid():
 			rd.free_rid(hbao_shader)
+			
 		if blur_shader.is_valid():
 			rd.free_rid(blur_shader)
+			
+		if blur_vertical_shader.is_valid():
+			rd.free_rid(blur_vertical_shader)
+			
+		if compose_shader.is_valid():
+			rd.free_rid(compose_shader)
 
 func _clean_textures() -> void:
-	if blur_image.is_valid():
-		rd.free_rid(blur_image)
-		blur_image = RID()
+	if blit_image.is_valid():
+		rd.free_rid(blit_image)
+		blit_image = RID()
+		
+	if blur_image_1.is_valid():
+		rd.free_rid(blur_image_1)
+		blur_image_1 = RID()
+		
+	if blur_image_1.is_valid():
+		rd.free_rid(blur_image_1)
+		blur_image_1 = RID()
+		
+	if blur_image_2.is_valid():
+		rd.free_rid(blur_image_2)
+		blur_image_2 = RID()
+		
+	if ssao_image.is_valid():
+		rd.free_rid(ssao_image)
+		ssao_image = RID()
 
 func _create_settings_buffer():
 	if scene_buffer.is_valid():
@@ -144,37 +182,90 @@ func _create_matrix_buffer(render_scene_data, view):
 
 func _create_textures(size: Vector2i) -> void:
 	var txt = RDTextureFormat.new()
-	txt.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
+	txt.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_UNORM
 	txt.width = size.x
 	txt.height = size.y
 	txt.depth = 1
 	txt.mipmaps = 1
 	txt.usage_bits = RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT + RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT + RenderingDevice.TEXTURE_USAGE_STORAGE_BIT + RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT + RenderingDevice.TEXTURE_USAGE_CAN_COPY_TO_BIT
-	blur_image = rd.texture_create(txt, RDTextureView.new())
+	
+	blit_image = rd.texture_create(txt, RDTextureView.new())
+	blur_image_1 = rd.texture_create(txt, RDTextureView.new())
+	blur_image_2 = rd.texture_create(txt, RDTextureView.new())
 
+	txt = RDTextureFormat.new()
+	txt.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_UNORM
+	txt.width = size.x * 0.5
+	txt.height = size.y * 0.5
+	txt.depth = 1
+	txt.mipmaps = 1
+	txt.usage_bits = RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT + RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT + RenderingDevice.TEXTURE_USAGE_STORAGE_BIT + RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT + RenderingDevice.TEXTURE_USAGE_CAN_COPY_TO_BIT
+	ssao_image = rd.texture_create(txt, RDTextureView.new())
+	
 #region Code in this region runs on the rendering thread.
 # Compile our shader at initialization.
 func _initialize_compute() -> void:
 	rd = RenderingServer.get_rendering_device()
 	if not rd:
 		return
+		
+	var color_attachment_format : RDAttachmentFormat = RDAttachmentFormat.new()
+	var no_blend_attachment := RDPipelineColorBlendStateAttachment.new()
+	color_attachment_format.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
+	color_attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT
+	var color_framebuffer_format = rd.framebuffer_format_create([color_attachment_format])
+	var no_blend := RDPipelineColorBlendState.new()
+	no_blend.attachments = [no_blend_attachment]
+	var stencil_state := RDPipelineDepthStencilState.new()
 
 	var noise_tex = preload("res://addons/Godot_HBAO/HDR_RGB_0.png")
 	noise_image = RenderingServer.texture_get_rd_texture(noise_tex.get_rid())
+	
 	# Compile our shader.
-	var shader_file := load("res://addons/Godot_HBAO/SSAO.glsl")
-	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
+	var shader_file_blit := load("res://addons/Godot_HBAO/blit.glsl")
+	var shader_spirv_blit: RDShaderSPIRV = shader_file_blit.get_spirv()
 
-	hbao_shader = rd.shader_create_from_spirv(shader_spirv)
+	blit_shader = rd.shader_create_from_spirv(shader_spirv_blit)
+	if blit_shader.is_valid():
+		blit_pipeline = rd.render_pipeline_create(blit_shader,color_framebuffer_format,-1, RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
+			RDPipelineMultisampleState.new(), stencil_state,
+			no_blend)
+	
+	var shader_file_ssao := load("res://addons/Godot_HBAO/SSAO.glsl")
+	var shader_spirv_ssao: RDShaderSPIRV = shader_file_ssao.get_spirv()
+
+	hbao_shader = rd.shader_create_from_spirv(shader_spirv_ssao)
 	if hbao_shader.is_valid():
-		hbao_pipeline = rd.compute_pipeline_create(hbao_shader)
+		hbao_pipeline = rd.render_pipeline_create(hbao_shader,color_framebuffer_format,-1, RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
+			RDPipelineMultisampleState.new(), stencil_state,
+			no_blend)
 
-	var shader_file2 := load("res://addons/Godot_HBAO/blur.glsl")
-	var shader_spirv2: RDShaderSPIRV = shader_file2.get_spirv()
+	var shader_file_blur_horizontal := load("res://addons/Godot_HBAO/blur_horizontal.glsl")
+	var shader_spirv_blur_horizontal: RDShaderSPIRV = shader_file_blur_horizontal.get_spirv()
 
-	blur_shader = rd.shader_create_from_spirv(shader_spirv2)
+	blur_shader = rd.shader_create_from_spirv(shader_spirv_blur_horizontal)
 	if blur_shader.is_valid():
-		blur_pipeline = rd.compute_pipeline_create(blur_shader)
+		blur_pipeline = rd.render_pipeline_create(blur_shader,color_framebuffer_format,-1, RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
+			RDPipelineMultisampleState.new(), stencil_state,
+			no_blend)
+			
+	var shader_file_blur_vertical := load("res://addons/Godot_HBAO/blur_vertical.glsl")
+	var shader_spirv_blur_vertical: RDShaderSPIRV = shader_file_blur_vertical.get_spirv()
+
+	blur_vertical_shader = rd.shader_create_from_spirv(shader_spirv_blur_vertical)
+	if blur_vertical_shader.is_valid():
+		blur_vertical_pipeline = rd.render_pipeline_create(blur_vertical_shader,color_framebuffer_format,-1, RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
+			RDPipelineMultisampleState.new(), stencil_state,
+			no_blend)
+			
+	var shader_file_compose := load("res://addons/Godot_HBAO/compose.glsl")
+	var shader_spirv_compose: RDShaderSPIRV = shader_file_compose.get_spirv()
+
+	compose_shader = rd.shader_create_from_spirv(shader_spirv_compose)
+	if compose_shader.is_valid():
+		compose_pipeline = rd.render_pipeline_create(compose_shader,color_framebuffer_format,-1, RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
+			RDPipelineMultisampleState.new(), stencil_state,
+			no_blend)
 
 # Called by the rendering thread every frame.
 func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data: RenderData) -> void:
@@ -187,28 +278,21 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 			var size: Vector2i = render_scene_buffers.get_internal_size()
 			if size.x == 0 and size.y == 0:
 				return
-
-
-			@warning_ignore("integer_division")
-			var x_groups := (size.x - 1) / 16 + 1
-			@warning_ignore("integer_division")
-			var y_groups := (size.y - 1) / 16 + 1
-			var z_groups := 1
-
+				
 			mutex.lock()
-
+			
 			if size != framebuffer_size:
 				framebuffer_size = size
 				_clean_textures()
 				_create_textures(size)
 				matrix_dirty = true
-
+			
 			if settings_dirty == true:
 				_create_settings_buffer()
 				settings_dirty = false
-
+			
 			mutex.unlock()
-
+			
 			# Create push constant.
 			# Must be aligned to 16 bytes and be in the same order as defined in the shader.
 			var push_constant := PackedFloat32Array([
@@ -217,82 +301,130 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 				0.0,
 				0.0
 			])
-
+			
 			# Loop through views just in case we're doing stereo rendering. No extra cost if this is mono.
 			var view_count: int = render_scene_buffers.get_view_count()
 			var render_scene_data = p_render_data.get_render_scene_data()
 			for view in view_count:
-
+			
 				if !mat_buffer.is_valid():
 					_create_matrix_buffer(render_scene_data, view)
-
+					
 				if matrix_dirty == true:
 					_create_matrix_buffer(render_scene_data, view)
 					matrix_dirty = false
-
+				
 				var matrices_uniform : RDUniform = RDUniform.new()
 				matrices_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
 				matrices_uniform.binding = 0
 				matrices_uniform.add_id(mat_buffer)
-
+				
 				var scene_uniform : RDUniform = RDUniform.new()
 				scene_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
 				scene_uniform.binding = 0
 				scene_uniform.add_id(scene_buffer)
-
+				
 				# Get the RID for our color image, we will be reading from and writing to it.
 				var input_image: RID = render_scene_buffers.get_color_layer(view)
 				var depth_image: RID = render_scene_buffers.get_depth_layer(view)
-
-
+				var ourput_image: RID = render_scene_buffers.get_color_layer(view)
+				
 				# Create a uniform set, this will be cached, the cache will be cleared if our viewports configuration is changed.
 				var color_uniform := RDUniform.new()
-				color_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
-				color_uniform.binding = 0
+				color_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+				color_uniform.binding = 1
+				color_uniform.add_id(linear_sampler)
 				color_uniform.add_id(input_image)
-
+				
 				var depth_uniform := RDUniform.new()
 				depth_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
 				depth_uniform.binding = 1
 				depth_uniform.add_id(nearest_sampler)
 				depth_uniform.add_id(depth_image)
-
-				var blur_uniform := RDUniform.new()
-				blur_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
-				blur_uniform.binding = 2
-				blur_uniform.add_id(blur_image)
-
+				
+				var blit_uniform := RDUniform.new()
+				blit_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+				blit_uniform.binding = 1
+				blit_uniform.add_id(linear_sampler)
+				blit_uniform.add_id(blit_image)
+				
+				var ssao_uniform := RDUniform.new()
+				ssao_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+				ssao_uniform.binding = 2
+				ssao_uniform.add_id(linear_sampler)
+				ssao_uniform.add_id(ssao_image)
+				
+				var blur_uniform_1 := RDUniform.new()
+				blur_uniform_1.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+				blur_uniform_1.binding = 2
+				blur_uniform_1.add_id(linear_sampler)
+				blur_uniform_1.add_id(blur_image_1)
+				
+				var blur_uniform_2 := RDUniform.new()
+				blur_uniform_2.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+				blur_uniform_2.binding = 2
+				blur_uniform_2.add_id(linear_sampler)
+				blur_uniform_2.add_id(blur_image_2)
+				
 				var noise_uniform := RDUniform.new()
 				noise_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
 				noise_uniform.binding = 3
-				noise_uniform.add_id(linear_sampler)
+				noise_uniform.add_id(nearest_sampler)
 				noise_uniform.add_id(noise_image)
-				# Run our compute shader.
-
+				
+				dispatch_stage(
+					blit_shader,
+					blit_pipeline,
+					[color_uniform],
+					[scene_uniform],
+					[matrices_uniform],
+					push_constant.to_byte_array(),
+					blit_image
+				)
+				
 				dispatch_stage(
 					hbao_shader,
 					hbao_pipeline,
-					[depth_uniform, blur_uniform, noise_uniform],
+					[depth_uniform, noise_uniform],
 					[scene_uniform],
 					[matrices_uniform],
 					push_constant.to_byte_array(),
-					Vector3(x_groups, y_groups, z_groups)
+					ssao_image
 				)
-
+				
 				dispatch_stage(
 					blur_shader,
 					blur_pipeline,
-					[color_uniform, depth_uniform, blur_uniform],
+					[depth_uniform, ssao_uniform],
 					[scene_uniform],
 					[matrices_uniform],
 					push_constant.to_byte_array(),
-					Vector3(x_groups, y_groups, z_groups)
+					blur_image_1
 				)
-
+				
+				dispatch_stage(
+					blur_vertical_shader,
+					blur_vertical_pipeline,
+					[depth_uniform, blur_uniform_1],
+					[scene_uniform],
+					[matrices_uniform],
+					push_constant.to_byte_array(),
+					blur_image_2
+				)
+				
+				dispatch_stage(
+					compose_shader,
+					compose_pipeline,
+					[blit_uniform, blur_uniform_2],
+					[scene_uniform],
+					[matrices_uniform],
+					push_constant.to_byte_array(),
+					ourput_image
+				)
 
 #endregion
 
-func dispatch_stage(stage : RID, pipeline : RID, uniforms : Array[RDUniform], scene : Array[RDUniform], matricies : Array[RDUniform], push_constants : PackedByteArray, dispatch_size : Vector3i):
+func dispatch_stage(stage : RID, pipeline : RID, uniforms : Array[RDUniform], scene : Array[RDUniform], matricies : Array[RDUniform], push_constants : PackedByteArray, output):
 
 	var matrices_uniform_set;
 	var scene_set;
@@ -302,20 +434,21 @@ func dispatch_stage(stage : RID, pipeline : RID, uniforms : Array[RDUniform], sc
 		matrices_uniform_set = UniformSetCacheRD.get_cache(stage, 2, matricies)
 	if scene != null:
 		scene_set = UniformSetCacheRD.get_cache(stage, 3, scene)
-
-	var compute_list = rd.compute_list_begin()
-	rd.compute_list_bind_compute_pipeline(compute_list, pipeline)
-	rd.compute_list_bind_uniform_set(compute_list, tex_uniform_set, 0)
+	
+	var copy_framebuffer = FramebufferCacheRD.get_cache_multipass([output], [], 1)
+	var draw_list = rd.draw_list_begin(copy_framebuffer,RenderingDevice.DRAW_IGNORE_ALL,)
+	rd.draw_list_bind_render_pipeline(draw_list, pipeline)
+	rd.draw_list_bind_uniform_set(draw_list, tex_uniform_set, 0)
 	if matrices_uniform_set != null:
-		rd.compute_list_bind_uniform_set(compute_list, matrices_uniform_set, 2)
+		rd.draw_list_bind_uniform_set(draw_list, matrices_uniform_set, 2)
 	if scene_set != null:
-		rd.compute_list_bind_uniform_set(compute_list, scene_set, 3)
+		rd.draw_list_bind_uniform_set(draw_list, scene_set, 3)
 
 	if !push_constants.is_empty():
-		rd.compute_list_set_push_constant(compute_list, push_constants, push_constants.size())
+		rd.draw_list_set_push_constant(draw_list, push_constants, push_constants.size())
 
-	rd.compute_list_dispatch(compute_list, dispatch_size.x, dispatch_size.y, dispatch_size.z)
+	rd.draw_list_draw(draw_list, false, 1, 3)
 
-	rd.compute_list_end()
+	rd.draw_list_end()
 
 	rd.draw_command_end_label()
