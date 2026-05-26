@@ -56,7 +56,7 @@ var mutex: Mutex = Mutex.new()
 	set(New_Radius):
 		Radius = New_Radius
 		settings_dirty = true
-@export_range(1.0,100.0,0.01) var Filter_Sharpness: float = 5.0 :
+@export_range(0.0,100.0,0.01) var Filter_Sharpness: float = 40.0 :
 	set(New_Filter_Sharpness):
 		Filter_Sharpness = New_Filter_Sharpness
 		settings_dirty = true
@@ -190,17 +190,17 @@ func _create_textures(size: Vector2i) -> void:
 	txt.usage_bits = RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT + RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT + RenderingDevice.TEXTURE_USAGE_STORAGE_BIT + RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT + RenderingDevice.TEXTURE_USAGE_CAN_COPY_TO_BIT
 	
 	blit_image = rd.texture_create(txt, RDTextureView.new())
-	blur_image_1 = rd.texture_create(txt, RDTextureView.new())
 	blur_image_2 = rd.texture_create(txt, RDTextureView.new())
 
 	txt = RDTextureFormat.new()
-	txt.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_UNORM
+	txt.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
 	txt.width = size.x * 0.5
 	txt.height = size.y * 0.5
 	txt.depth = 1
 	txt.mipmaps = 1
 	txt.usage_bits = RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT + RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT + RenderingDevice.TEXTURE_USAGE_STORAGE_BIT + RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT + RenderingDevice.TEXTURE_USAGE_CAN_COPY_TO_BIT
 	ssao_image = rd.texture_create(txt, RDTextureView.new())
+	blur_image_1 = rd.texture_create(txt, RDTextureView.new())
 	
 #region Code in this region runs on the rendering thread.
 # Compile our shader at initialization.

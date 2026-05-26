@@ -80,6 +80,8 @@ float MaxRadiusPixels = 100.0;
 const int NumDirections = 8;
 const int NumSamples = 8;
 
+const float max24int = 256.0 * 256.0 * 256.0 - 1.0;
+
 vec2 hash22(vec2 p)
 {
     vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973));
@@ -229,6 +231,14 @@ void ComputeSteps(inout vec2 stepSizeUv, inout float numSteps, float rayRadiusPi
     stepSizeUv = stepSizePix * InvAORes;
 }
 
+vec2 encode_depth(float value) {
+    vec2 kEncodeMul = vec2(1.0f, 255.0f);
+    float kEncodeBit = 1.0f/255.0f;
+    vec2 color = kEncodeMul*value;
+    color = fract(color);
+    color.x -= color.y * kEncodeBit;
+    return color;
+}
 
 // The code we want to execute in each invocation
 void main() {
@@ -244,6 +254,8 @@ void main() {
     vec3 P, Pr, Pl, Pt, Pb;
 
     P 	= GetViewPos(depth_uv);
+
+    vec2 depth_encode = encode_depth((P.z + (P.z / 2.0)) / 256.0);
 
     Pr 	= GetViewPos(depth_uv + vec2( InvAORes.x, 0));
     Pl 	= GetViewPos(depth_uv + vec2(-InvAORes.x, 0));
@@ -291,7 +303,8 @@ void main() {
 
     ao_final = clamp(pow(1.0 - ao_final, Scene.Power),0.0,1.0);
 
-    vec4 blur = vec4(ao_final,ao_final,ao_final,1.0);
+
+    vec4 blur = vec4(depth_encode.r,depth_encode.g,1.0,ao_final);
 
     frag_color = blur;
 }

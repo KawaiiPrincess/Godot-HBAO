@@ -58,23 +58,22 @@ layout(push_constant, std430) uniform Params {
 
 const int KERNEL_RADIUS = 3;
 
+const float max24int = 256.0 * 256.0 * 256.0 - 1.0;
+
 vec2 AORes = params.raster_size / 2.0;
 float g_Sharpness = Scene.Sharpness;
 
-void lineardepth(vec2 uv, float depth, mat4 invmatrix, inout float linear_depth) {
-    vec3 ndc = vec3(uv * 2.0 - 1.0, depth);
 
-    vec4 view = invmatrix * vec4(ndc, 1.0);
-    view.xyz /= view.w;
-    linear_depth = view.z ;
+float decode_depth(vec2 value) {
+    return dot(value, vec2(1.0f, 1.0f/255.0f));
 }
-
 
 void BlurFunction(vec2 uv, float r, vec4 center_c, float center_d, inout float w_total, inout vec4 c_total)
 {
-    vec4  c = texture( blur_image, uv );
-    float d = texture( depth_texture, uv).x;
-    lineardepth(uv, d, mat.proj, d);
+    vec4  tex = texture( blur_image, uv );
+
+    float c = tex.a;
+    float d = decode_depth(tex.rg) * 2.0 - 1.0;
 
     const float BlurSigma = float(KERNEL_RADIUS) * 0.5;
     const float BlurFalloff = 1.0 / (2.0*BlurSigma*BlurSigma);
@@ -89,40 +88,30 @@ void BlurFunction(vec2 uv, float r, vec4 center_c, float center_d, inout float w
 void main() {
     vec2 sampler_uv = uv_interp;
 
-    vec4 blur = texture(blur_image, sampler_uv);
+    vec4 ssao = texture(blur_image, sampler_uv);
 
-    float depth = texture(depth_texture, sampler_uv).r;
-
-    float sky = depth;
-    sky *= 20000;
-    sky = clamp(sky,0.0,1.0);
-    sky = 1.0 - sky;
+    float depth = decode_depth(ssao.rg) * 2.0 - 1.0;
 
     float inc = 1.0/AORes.y * 2.0;
 
-    lineardepth(sampler_uv, depth, mat.proj, depth);
-
     float w_total = 1.0;
-    vec4 c_total = blur;
+    vec4 c_total = ssao;
 
     for (float y = 1; y <= KERNEL_RADIUS; ++y)
     {
         vec2 blur_uv = (sampler_uv) + vec2(0.0,inc) * y;
-        BlurFunction(blur_uv, y, blur, depth, w_total, c_total);
+        BlurFunction(blur_uv, y, ssao, depth, w_total, c_total);
     }
 
     for (float y = 1; y <= KERNEL_RADIUS; ++y)
     {
         vec2 blur_uv = sampler_uv - vec2(0.0,inc) * y;
-        BlurFunction(blur_uv, y, blur, depth, w_total, c_total);
+        BlurFunction(blur_uv, y, ssao, depth, w_total, c_total);
     }
 
-    c_total = vec4(c_total.x,c_total.x,c_total.x,1.0);
+    c_total = vec4(c_total.a,c_total.a,c_total.a,c_total.a);
 
     vec4 final_color = c_total/w_total;
-
-    final_color = clamp(final_color,0.0,1.0) + sky;
-    final_color = clamp(final_color,0.0,1.0);
 
     // Write back to our color buffer.
     frag_color = final_color;
