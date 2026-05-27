@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://cvkq3cqdq6aj"
+path="res://.godot/imported/compose.glsl-acf86e6046ee8d9020c08a8500ab57fd.res"
+
+[deps]
+
+source_file="res://addons/Godot_HBAO/compose.glsl"
+dest_files=["res://.godot/imported/compose.glsl-acf86e6046ee8d9020c08a8500ab57fd.res"]
+
+[params]
+

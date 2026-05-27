@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://g2ij3ql1qk4n"
+path="res://.godot/imported/blur_horizontal.glsl-546223f4531bf1724b4a9c96c89fb4b3.res"
+
+[deps]
+
+source_file="res://addons/Godot_HBAO/blur_horizontal.glsl"
+dest_files=["res://.godot/imported/blur_horizontal.glsl-546223f4531bf1724b4a9c96c89fb4b3.res"]
+
+[params]
+
