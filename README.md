@@ -7,7 +7,7 @@ Custom SSAO effect for Godot, Implemented via Compositor Effect.
 Godots built in SSAO effect was too slow for my project so I decided to create a custom SSAO effect. It costs less than 1 ms per frame on my GPU (NVIDIA GTX 1650). Most of the performance improvement is probably due to not needing the Normal Roughness Buffer to work. This effect also has the benefit of working with alpha transparent materials, where as the built in effect ignores them.
 
 ## Instructions
-1. Copy addons folder to Godot Project folder.
+1. Copy into the Addons folder.
 2. Add a new WorldEnviroment node.
 3. Create a new Compositor. Under that, add a New SSAO.
 4. Tweak settings to your liking.
