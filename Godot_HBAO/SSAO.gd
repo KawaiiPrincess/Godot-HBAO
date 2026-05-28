@@ -23,7 +23,6 @@ var linear_sampler: RID
 var ssao_image: RID
 var blur_image_1: RID
 var blur_image_2: RID
-var noise_image: RID
 
 var framebuffer_size : Vector2i = Vector2i(0, 0)
 
@@ -199,9 +198,6 @@ func _initialize_compute() -> void:
 	var stencil_state := RDPipelineDepthStencilState.new()
 	var multisample_state := RDPipelineMultisampleState.new()
 	var pipeline_state := RDPipelineRasterizationState.new()
-
-	var noise_tex = preload("res://addons/Godot_HBAO/bayer4.png")
-	noise_image = RenderingServer.texture_get_rd_texture(noise_tex.get_rid())
 	
 	# Compile our shader.
 	var shader_file_ssao := load("res://addons/Godot_HBAO/SSAO.glsl")
@@ -287,13 +283,7 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 				depth_uniform.add_id(nearest_sampler)
 				depth_uniform.add_id(depth_image)
 				
-				var noise_uniform := RDUniform.new()
-				noise_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
-				noise_uniform.binding = 1
-				noise_uniform.add_id(nearest_sampler)
-				noise_uniform.add_id(noise_image)
-				
-				var depth_set = UniformSetCacheRD.get_cache(hbao_shader, 0, [depth_uniform,noise_uniform])
+				var depth_set = UniformSetCacheRD.get_cache(hbao_shader, 0, [depth_uniform])
 				
 				
 				if !mat_buffer.is_valid():

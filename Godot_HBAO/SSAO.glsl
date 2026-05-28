@@ -22,7 +22,6 @@ void main() {
 #version 450
 
 layout(set = 0, binding = 0) uniform sampler2D depth_texture;
-layout(set = 0, binding = 1) uniform sampler2D noise_texture;
 
 layout(location = 0) in vec2 uv_interp;
 layout(location = 0) out vec4 frag_color;
@@ -71,14 +70,12 @@ float TanBias = tan(Scene.Bias * PI / 180.0);
 float MaxRadiusPixels = 50.0;
 
 const int NumDirections = 8;
-const int NumSamples = 8;
+const int NumSamples = 4;
 
-vec2 hash22(vec2 p)
+float IGN(vec2 p)
 {
-    vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973));
-    p3 += dot(p3, p3.yzx+33.33);
-    return fract((p3.xx+p3.yz)*p3.zy);
-
+    vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+    return fract( magic.z * fract(dot(p,magic.xy)) );
 }
 
 void lineardepth(vec2 uv, float depth, mat4 invmatrix, inout float linear_depth) {
@@ -237,10 +234,7 @@ void main() {
 
     vec2 depth_uv = uv_interp * 2.0;
 
-    vec2 bayer_uv = uv_interp * size;
-    bayer_uv = vec2((bayer_uv-floor(bayer_uv/4.0)*4.0)/4.0);
-
-    float bayer = texture(noise_texture, bayer_uv).r;
+    float AONoise = IGN(uv_interp * size);
 
     vec3 P, Pr, Pl, Pt, Pb;
 
@@ -269,25 +263,25 @@ void main() {
     float numSteps;
     vec2 stepSizeUV;
 
-    ComputeSteps(stepSizeUV,numSteps, rayRadiusPix, bayer);
+    ComputeSteps(stepSizeUV,numSteps, rayRadiusPix, AONoise);
 
     for(float d = 0; d < NumDirections; ++d) {
 
         float theta = alpha * d;
 
-        vec2 dir = RotateDirections(vec2(cos(theta), sin(theta)), vec2(bayer * d,bayer * -d));
+        vec2 dir = RotateDirections(vec2(cos(theta), sin(theta)), vec2(AONoise));
         vec2 deltaUV = orientate(dir * stepSizeUV,normal);
 
 
-        occlusion_small += HorizonOcclusion(depth_uv,deltaUV,P,dPdu,dPdv,bayer);
+        occlusion_small += HorizonOcclusion(depth_uv,deltaUV,P,dPdu,dPdv,AONoise);
 
         for(float s = 1; s <= NumSamples; ++s) {
 
-            occlusion_large += HorizonOcclusion(depth_uv,deltaUV,P,dPdu,dPdv,bayer);
+            occlusion_large += HorizonOcclusion(depth_uv,deltaUV,P,dPdu,dPdv,AONoise);
         }
     }
 
-    float ao_final = (occlusion_small * AOStrength_small) + (occlusion_large * AOStrength_large);
+    float ao_final = max(occlusion_small * AOStrength_small,0.0) + max(occlusion_large * AOStrength_large,0.0);
     ao_final /= (NumDirections * NumSamples);
 
     ao_final = clamp(pow(1.0 - ao_final, Scene.Power),0.0,1.0);
