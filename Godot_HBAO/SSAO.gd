@@ -66,15 +66,15 @@ func _init() -> void:
 	RenderingServer.call_on_render_thread(_initialize_compute)
 
 	var sampler_state := RDSamplerState.new()
-	sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
-	sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
+	sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
 	sampler_state.min_filter = RenderingDevice.SAMPLER_FILTER_NEAREST
 	sampler_state.mag_filter = RenderingDevice.SAMPLER_FILTER_NEAREST
 	nearest_sampler = RenderingServer.get_rendering_device().sampler_create(sampler_state)
 
 	var sampler_state_linear := RDSamplerState.new()
-	sampler_state_linear.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
-	sampler_state_linear.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	sampler_state_linear.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
+	sampler_state_linear.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
 	sampler_state_linear.min_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
 	sampler_state_linear.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
 	linear_sampler = RenderingServer.get_rendering_device().sampler_create(sampler_state_linear)
