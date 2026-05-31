@@ -289,16 +289,12 @@ void main() {
 
         vec2 deltaUV = dir * stepSizeUV;
 
-        float jitterA = AONoise * IGN(vec2(d));
-
-
-        occlusion_small += HorizonOcclusion(uv,deltaUV,P,dPdu,dPdv,jitterA);
+        occlusion_small += HorizonOcclusion(uv,deltaUV,P,dPdu,dPdv,AONoise);
 
         for(float s = 1; s <= NumSamples; ++s) {
 
-            float jitterB = jitterA * IGN(vec2(s));
 
-            occlusion_large += HorizonOcclusion(uv,deltaUV,P,dPdu,dPdv,jitterB);
+            occlusion_large += HorizonOcclusion(uv,deltaUV,P,dPdu,dPdv,AONoise);
         }
     }
 

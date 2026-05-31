@@ -42,7 +42,7 @@ layout(push_constant, std430) uniform Params {
     vec2 reserved;
 } params;
 
-const int KERNEL_RADIUS = 5;
+const int KERNEL_RADIUS = 3;
 
 vec2 AORes = params.raster_size;
 vec2 InvAORes = vec2(1.0/AORes.x, 1.0/AORes.y);
