@@ -48,9 +48,9 @@ vec2 AORes = params.raster_size;
 vec2 InvAORes = vec2(1.0/AORes.x, 1.0/AORes.y);
 float g_Sharpness = Scene.Sharpness;
 
-
-float decode_depth(vec2 value) {
-    return dot(value, vec2(1.0f, 1.0f/255.0f));
+float decode_depth(vec3 value) {
+    float unsigned_value = dot(value, vec3(1.0f, 1.0f/255.0f, 1.0/65025.0f));
+    return ((unsigned_value) * 2.0 - 1.0);
 }
 
 void BlurFunction(vec2 uv, float r, vec4 center_c, float center_d, inout float w_total, inout vec4 c_total)
@@ -58,7 +58,7 @@ void BlurFunction(vec2 uv, float r, vec4 center_c, float center_d, inout float w
     vec4  tex = texture( blur_input, uv );
 
     float c = tex.a;
-    float d = decode_depth(tex.rg) * 2.0 - 1.0;
+    float d = decode_depth(tex.rgb);
 
     float BlurSigma = float(KERNEL_RADIUS) * 0.5;
     float BlurFalloff = 1.0 / (2.0*BlurSigma*BlurSigma);
@@ -76,9 +76,9 @@ void main() {
 
     vec4 ssao = texture(blur_input, uv);
 
-    float depth = decode_depth(ssao.rg) * 2.0 - 1.0;
+    float depth = decode_depth(ssao.rgb);
 
-    float inc = 1.0/AORes.y;
+    float inc = 2.0/AORes.y;
 
     float w_total = 1.0;
     vec4 c_total = ssao;

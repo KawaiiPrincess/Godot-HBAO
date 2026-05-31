@@ -27,6 +27,6 @@ layout(location = 0) in vec2 uv_interp;
 layout(location = 0) out vec4 frag_color;
 
 void main() {
-    vec4 color = texture(ssao_color, uv_interp / 2.0);
+    vec4 color = texture(ssao_color, uv_interp);
     frag_color = vec4(color.a,color.a,color.a,1.0);
 }

@@ -5,6 +5,9 @@ class_name SSAO
 
 var rd: RenderingDevice
 
+var linear_depth_shader: RID
+var linear_depth_pipeline: RID
+
 var hbao_shader: RID
 var hbao_pipeline: RID
 
@@ -20,6 +23,7 @@ var compose_pipeline: RID
 var nearest_sampler: RID
 var linear_sampler: RID
 
+var linear_depth_image: RID
 var ssao_image: RID
 var blur_image_1: RID
 var blur_image_2: RID
@@ -66,15 +70,15 @@ func _init() -> void:
 	RenderingServer.call_on_render_thread(_initialize_compute)
 
 	var sampler_state := RDSamplerState.new()
-	sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
-	sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
+	sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_MIRRORED_REPEAT
+	sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_MIRRORED_REPEAT
 	sampler_state.min_filter = RenderingDevice.SAMPLER_FILTER_NEAREST
 	sampler_state.mag_filter = RenderingDevice.SAMPLER_FILTER_NEAREST
 	nearest_sampler = RenderingServer.get_rendering_device().sampler_create(sampler_state)
 
 	var sampler_state_linear := RDSamplerState.new()
-	sampler_state_linear.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
-	sampler_state_linear.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
+	sampler_state_linear.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_MIRRORED_REPEAT
+	sampler_state_linear.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_MIRRORED_REPEAT
 	sampler_state_linear.min_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
 	sampler_state_linear.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
 	linear_sampler = RenderingServer.get_rendering_device().sampler_create(sampler_state_linear)
@@ -88,6 +92,8 @@ func _init() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PREDELETE:
+		if linear_depth_shader.is_valid():
+			rd.free_rid(linear_depth_shader)
 			
 		if hbao_shader.is_valid():
 			rd.free_rid(hbao_shader)
@@ -103,6 +109,10 @@ func _notification(what: int) -> void:
 			
 
 func _clean_textures() -> void:
+	if linear_depth_image.is_valid():
+		rd.free_rid(linear_depth_image)
+		linear_depth_image = RID()
+		
 	if blur_image_1.is_valid():
 		rd.free_rid(blur_image_1)
 		blur_image_1 = RID()
@@ -180,6 +190,15 @@ func _create_textures(size: Vector2i) -> void:
 	blur_image_1 = rd.texture_create(txt, RDTextureView.new())
 	blur_image_2 = rd.texture_create(txt, RDTextureView.new())
 	
+	txt = RDTextureFormat.new()
+	txt.format = RenderingDevice.DATA_FORMAT_R32_SFLOAT
+	txt.width = size.x
+	txt.height = size.y
+	txt.depth = 1
+	txt.mipmaps = 1
+	txt.usage_bits = RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT + RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT + RenderingDevice.TEXTURE_USAGE_STORAGE_BIT + RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT + RenderingDevice.TEXTURE_USAGE_CAN_COPY_TO_BIT
+	linear_depth_image = rd.texture_create(txt, RDTextureView.new())
+	
 #region Code in this region runs on the rendering thread.
 # Compile our shader at initialization.
 func _initialize_compute() -> void:
@@ -200,6 +219,15 @@ func _initialize_compute() -> void:
 	var pipeline_state := RDPipelineRasterizationState.new()
 	
 	# Compile our shader.
+	var shader_file_linear_depth := load("res://addons/Godot_HBAO/linearize_depth.glsl")
+	var shader_spirv_linear_depth: RDShaderSPIRV = shader_file_linear_depth.get_spirv()
+
+	linear_depth_shader = rd.shader_create_from_spirv(shader_spirv_linear_depth)
+	if linear_depth_shader.is_valid():
+		linear_depth_pipeline = rd.render_pipeline_create(linear_depth_shader,color_framebuffer_format,-1, RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, pipeline_state,
+			multisample_state, stencil_state,
+			no_blend)
+			
 	var shader_file_ssao := load("res://addons/Godot_HBAO/SSAO.glsl")
 	var shader_spirv_ssao: RDShaderSPIRV = shader_file_ssao.get_spirv()
 
@@ -282,8 +310,7 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 				depth_uniform.binding = 0
 				depth_uniform.add_id(nearest_sampler)
 				depth_uniform.add_id(depth_image)
-				
-				var depth_set = UniformSetCacheRD.get_cache(hbao_shader, 0, [depth_uniform])
+				var depth_set = UniformSetCacheRD.get_cache(linear_depth_shader, 0, [depth_uniform])
 				
 				
 				if !mat_buffer.is_valid():
@@ -305,10 +332,26 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 				scene_uniform.add_id(scene_buffer)
 				var scene_set = UniformSetCacheRD.get_cache(hbao_shader, 3, [scene_uniform])
 				
+				var linear_depth_framebuffer = FramebufferCacheRD.get_cache_multipass([linear_depth_image],[],1)
+				var linear_depth_draw_list := rd.draw_list_begin(linear_depth_framebuffer,RenderingDevice.DRAW_IGNORE_ALL,);
+				rd.draw_list_bind_render_pipeline(linear_depth_draw_list, linear_depth_pipeline)
+				rd.draw_list_bind_uniform_set(linear_depth_draw_list, depth_set, 0)
+				rd.draw_list_bind_uniform_set(linear_depth_draw_list, matrices_set, 2)
+				rd.draw_list_set_push_constant(linear_depth_draw_list, push_constant.to_byte_array(), push_constant.size() * 4)
+				rd.draw_list_draw(linear_depth_draw_list, false, 1, 3)
+				rd.draw_list_end()
+				
+				var linear_depth_uniform := RDUniform.new()
+				linear_depth_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+				linear_depth_uniform.binding = 0
+				linear_depth_uniform.add_id(nearest_sampler)
+				linear_depth_uniform.add_id(linear_depth_image)
+				var linear_depth_set = UniformSetCacheRD.get_cache(hbao_shader, 0, [linear_depth_uniform])
+				
 				var ssao_framebuffer = FramebufferCacheRD.get_cache_multipass([ssao_image],[],1)
 				var ssao_draw_list := rd.draw_list_begin(ssao_framebuffer,RenderingDevice.DRAW_IGNORE_ALL,);
 				rd.draw_list_bind_render_pipeline(ssao_draw_list, hbao_pipeline)
-				rd.draw_list_bind_uniform_set(ssao_draw_list, depth_set, 0)
+				rd.draw_list_bind_uniform_set(ssao_draw_list, linear_depth_set, 0)
 				rd.draw_list_bind_uniform_set(ssao_draw_list, matrices_set, 2)
 				rd.draw_list_bind_uniform_set(ssao_draw_list, scene_set, 3)
 				rd.draw_list_set_push_constant(ssao_draw_list, push_constant.to_byte_array(), push_constant.size() * 4)
@@ -396,31 +439,3 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 				rd.draw_command_end_label()
 
 #endregion
-
-func dispatch_stage(stage : RID, pipeline : RID, uniforms : Array[RDUniform], scene : Array[RDUniform], matricies : Array[RDUniform], push_constants : PackedByteArray, groups : Vector3):
-
-	var matrices_uniform_set;
-	var scene_set;
-
-	var tex_uniform_set = UniformSetCacheRD.get_cache(stage, 0, uniforms)
-	if matricies != null:
-		matrices_uniform_set = UniformSetCacheRD.get_cache(stage, 2, matricies)
-	if scene != null:
-		scene_set = UniformSetCacheRD.get_cache(stage, 3, scene)
-	
-	var compute_list = rd.compute_list_begin()
-	rd.compute_list_bind_compute_pipeline(compute_list, pipeline)
-	rd.compute_list_bind_uniform_set(compute_list, tex_uniform_set, 0)
-	if matrices_uniform_set != null:
-		rd.compute_list_bind_uniform_set(compute_list, matrices_uniform_set, 2)
-	if scene_set != null:
-		rd.compute_list_bind_uniform_set(compute_list, scene_set, 3)
-
-	if !push_constants.is_empty():
-		rd.compute_list_set_push_constant(compute_list, push_constants, push_constants.size())
-
-	rd.compute_list_dispatch(compute_list, groups.x, groups.y, groups.z)
-
-	rd.compute_list_end()
-
-	rd.draw_command_end_label()
