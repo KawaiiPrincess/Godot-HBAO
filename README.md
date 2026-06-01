@@ -4,7 +4,7 @@ Custom SSAO effect for Godot, Implemented via Compositor Effect.
 ![Image](https://github.com/KawaiiPrincess/Godot-HBAO/blob/main/HBAO.png)
 
 ## Why?
-Godots built in SSAO effect was too slow for my project so I decided to create a custom SSAO effect. It costs less than 1 ms per frame on my GPU (NVIDIA GTX 1650). Most of the performance improvement is probably due to not needing the Normal Roughness Buffer to work. This effect also has the benefit of working with alpha transparent materials, where as the built in effect ignores them.
+Godot's built in SSAO effect was too slow for my project, so I decided to create a custom SSAO effect. It costs less than 0.5 ms per frame on my GPU (NVIDIA GTX 1650). This effect also has the benefit of working with alpha transparent materials, where as the built in effect ignores them.
 
 ## Instructions
 1. Copy into the Addons folder.
@@ -24,6 +24,6 @@ Additional improvements to the base algorithm where referenced from [NVIDIAGameW
 ## TODO
 1. Improve the ssao algorithm further.
 2. Performance Improvements, such as interleaved rendering.
-3. Improve the filtering pass.
-4. Make compatible with the Mobile Renderer.
+~~3. Improve the filtering pass.~~
+~~4. Make compatible with the Mobile Renderer.~~ Now works with Mobile!
 5. Likely bugfixes, I am not a graphics programmer.
